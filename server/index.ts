@@ -11,6 +11,7 @@ import {
   listResolved,
   getLeaderboard,
   getUser,
+  authLogin,
 } from "./routes/reports";
 
 export function createServer() {
@@ -18,8 +19,9 @@ export function createServer() {
 
   // Middleware
   app.use(cors());
-  app.use(express.json({ limit: "10mb" }));
-  app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+  // Increase JSON/body size limit to allow camera images (base64) — adjust as needed
+  app.use(express.json({ limit: "50mb" }));
+  app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
   // Health & demo
   app.get("/api/ping", (_req, res) => {
@@ -30,6 +32,7 @@ export function createServer() {
 
   // Users
   app.post("/api/users/upsert", upsertUser);
+  app.post("/api/auth/login", authLogin);
   app.get("/api/users/:id", getUser);
 
   // Reports
@@ -39,6 +42,15 @@ export function createServer() {
   app.get("/api/stats", getStats);
   app.get("/api/reports-resolved", listResolved);
   app.get("/api/leaderboard", getLeaderboard);
+
+  // Graceful error handler for payloads that exceed the configured limit
+  app.use((err: any, _req: any, res: any, _next: any) => {
+    if (err && (err.type === 'entity.too.large' || /payload/i.test(err.message || ''))) {
+      return res.status(413).json({ error: 'Payload too large. Reduce image size or switch to multipart uploads.' });
+    }
+    console.error('Unhandled server error', err && err.stack ? err.stack : err);
+    return res.status(500).json({ error: 'Internal server error' });
+  });
 
   return app;
 }

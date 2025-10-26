@@ -15,6 +15,9 @@ export default function CitizenDashboard() {
   const [description, setDescription] = useState("");
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [isLikelyScreen, setIsLikelyScreen] = useState<boolean>(false);
+  const [captureSource, setCaptureSource] = useState<'camera'|'upload'|null>(null);
+  const [categoryHint, setCategoryHint] = useState<string | null>(null);
+  const [imageFeatures, setImageFeatures] = useState<any>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
@@ -132,8 +135,31 @@ export default function CitizenDashboard() {
     ctx.drawImage(video, 0, 0, w, h);
     const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
     setImageDataUrl(dataUrl);
+
     const flagged = await detectScreenPhoto(dataUrl);
     setIsLikelyScreen(!!flagged);
+    setCaptureSource('camera');
+    // compute lightweight features and category hint
+    try { const feat = await classifyImage(dataUrl); setImageFeatures(feat); setCategoryHint(feat.category); } catch {};
+
+    // Try to capture fresh geolocation at the moment of photo
+    const getGeo = () => new Promise<{ lat: number; lng: number } | null>((resolve) => {
+      if (!navigator.geolocation) return resolve(null);
+      let done = false;
+      const onSuccess = (pos: GeolocationPosition) => { if (done) return; done = true; resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }); };
+      const onErr = () => { if (done) return; done = true; resolve(null); };
+      navigator.geolocation.getCurrentPosition(onSuccess, onErr, { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 });
+      // fallback timeout
+      setTimeout(() => { if (!done) { done = true; resolve(null); } }, 6000);
+    });
+
+    try {
+      const geo = await getGeo();
+      if (geo) setLocation(geo);
+    } catch (e) {
+      // ignore
+    }
+
     setTimestamp(new Date().toLocaleString());
     stopCamera();
   };
@@ -145,6 +171,26 @@ export default function CitizenDashboard() {
     setImageDataUrl(b);
     const flagged = await detectScreenPhoto(b);
     setIsLikelyScreen(!!flagged);
+    setCaptureSource('upload');
+    try { const feat = await classifyImage(b); setImageFeatures(feat); setCategoryHint(feat.category); } catch {};
+
+    // Try to capture geolocation when user picks/uploads a file
+    const getGeo = () => new Promise<{ lat: number; lng: number } | null>((resolve) => {
+      if (!navigator.geolocation) return resolve(null);
+      let done = false;
+      const onSuccess = (pos: GeolocationPosition) => { if (done) return; done = true; resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }); };
+      const onErr = () => { if (done) return; done = true; resolve(null); };
+      navigator.geolocation.getCurrentPosition(onSuccess, onErr, { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 });
+      setTimeout(() => { if (!done) { done = true; resolve(null); } }, 6000);
+    });
+
+    try {
+      const geo = await getGeo();
+      if (geo) setLocation(geo);
+    } catch (e) {
+      // ignore
+    }
+
     setTimestamp(new Date().toLocaleString());
   };
 
@@ -171,7 +217,7 @@ export default function CitizenDashboard() {
     setSubmitting(true);
     setError(null);
     try {
-      const body = {
+        const body = {
         userId: user.id,
         userName: user.name,
         userEmail: user.email,
@@ -179,6 +225,9 @@ export default function CitizenDashboard() {
         description,
         location,
         isLikelyScreen,
+        captureSource,
+        categoryHint,
+        imageFeatures,
       };
       const r = await fetch("/api/reports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!r.ok) throw new Error("Submit failed");
@@ -194,6 +243,43 @@ export default function CitizenDashboard() {
   };
 
   const readableTime = useMemo(() => (timestamp ? timestamp : new Date().toLocaleString()), [timestamp]);
+
+  async function classifyImage(dataUrl: string) {
+    const img = document.createElement('img');
+    img.src = dataUrl;
+    await new Promise<void>((res, rej) => { img.onload = () => res(); img.onerror = () => rej(); });
+    const w = Math.min(300, img.naturalWidth);
+    const h = Math.min(300, img.naturalHeight);
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const ctx = c.getContext('2d')!;
+    ctx.drawImage(img, 0, 0, w, h);
+    const d = ctx.getImageData(0, 0, w, h).data;
+    let sumR = 0, sumG = 0, sumB = 0, sum = 0;
+    let diffs = 0, cnt = 0;
+    for (let y = 1; y < h-1; y+=2) {
+      for (let x = 1; x < w-1; x+=2) {
+        const i = (y*w + x)*4;
+        const r = d[i], g = d[i+1], b = d[i+2];
+        sumR += r; sumG += g; sumB += b; sum++;
+        const iR = (y*w + (x+1))*4;
+        const r2 = d[iR], g2 = d[iR+1], b2 = d[iR+2];
+        const diff = Math.abs(r-r2)+Math.abs(g-g2)+Math.abs(b-b2);
+        diffs += diff; cnt++;
+      }
+    }
+    const avgR = sumR / sum, avgG = sumG / sum, avgB = sumB / sum;
+    const edge = cnt ? diffs / cnt : 0;
+    const greenRatio = (avgG) / (avgR + avgG + avgB + 1e-6);
+    // simple heuristics to pick category
+    let category = 'other';
+    if (edge > 40 && greenRatio < 0.35) category = 'road_damage';
+    else if (edge > 25 && avgR < 120 && avgG < 120 && avgB < 120 && avgR+avgG+avgB < 360) category = 'streetlight';
+    else if (edge < 20 && (avgG > avgR && avgG > avgB)) category = 'dirty_places';
+    else if (edge > 20 && greenRatio > 0.4) category = 'garbage';
+    else if (edge > 50 && greenRatio < 0.2) category = 'potholes';
+    return { edge: Math.round(edge), avgR: Math.round(avgR), avgG: Math.round(avgG), avgB: Math.round(avgB), greenRatio: Number(greenRatio.toFixed(2)), category };
+  }
 
   return (
     <div className="min-h-screen bg-white text-slate-900">
@@ -233,9 +319,7 @@ export default function CitizenDashboard() {
                 )}
                 <span className="text-xs text-slate-600 ml-auto">{readableTime}</span>
               </div>
-              {isLikelyScreen && (
-                <div className="p-2 text-sm text-rose-600">Detected: photo of a screen/phone. AI will mark this as likely spam.</div>
-              )}
+              {/* No 'detected screen' warning shown to user to avoid confusion; server will handle spam scoring. */}
             </div>
             <div>
               <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe the issue..." className="min-h-[220px]" />

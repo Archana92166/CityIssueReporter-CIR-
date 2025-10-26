@@ -40,7 +40,12 @@ export default function AuthorityDashboard() {
       if (resolved_location) body.resolved_location = resolved_location;
       if (Array.isArray(resolution_photos) && resolution_photos.length) body.resolution_photos = resolution_photos;
       const res = await fetch(`/api/reports/${r.id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      if (!res.ok) console.error('Failed to update status', await res.text());
+      if (!res.ok) {
+        console.error('Failed to update status', await res.text());
+      } else {
+        // notify other UI (transparency) to reload immediately
+        try { window.dispatchEvent(new CustomEvent('reports:updated')); } catch (e) { /* ignore */ }
+      }
     } catch (e) {
       console.error('Failed to update status', e);
     }

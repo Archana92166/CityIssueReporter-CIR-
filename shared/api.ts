@@ -15,6 +15,7 @@ export interface User {
   role: UserRole;
   points: number;
   createdAt: number; // epoch ms
+  passwordHash?: string | null;
 }
 
 export type ReportStatus =

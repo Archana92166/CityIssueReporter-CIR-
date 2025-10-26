@@ -54,38 +54,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login: AuthContextValue["login"] = async ({ email, password, name, phone }) => {
-    if (!email || !password) throw new Error("Email and password required");
-    const existingRaw = localStorage.getItem(LOCAL_KEY);
-    let existing: User | null = existingRaw ? JSON.parse(existingRaw) : null;
-    const now = Date.now();
-    const me: User = existing?.email === email ? existing : {
-      id: Math.random().toString(36).slice(2),
-      email,
-      name: name || email.split("@")[0],
-      photoURL: null,
-      phone: phone ?? null,
-      role: determineRole(email),
-      points: existing?.points || 0,
-      createdAt: existing?.createdAt || now,
-    };
-
-    // Upsert to server so reports can be attributed (server keeps separate map)
-    await fetch("/api/users/upsert", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: me.email, name: me.name, photoURL: me.photoURL, phone: me.phone }),
-    }).then((r) => r.json()).then((srv) => {
-      if (srv && srv.id) {
-        me.id = srv.id;
-        me.role = srv.role;
-        me.points = srv.points;
-        me.createdAt = srv.createdAt;
+    if ((!email && !phone) || !password) throw new Error("Email or phone and password required");
+    try {
+      const res = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, phone, password, name }) });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || 'Login failed');
       }
-    }).catch(() => {});
-
-    localStorage.setItem(LOCAL_KEY, JSON.stringify(me));
-    setUser(me);
-    return me;
+      const srv: User = await res.json();
+      localStorage.setItem(LOCAL_KEY, JSON.stringify(srv));
+      setUser(srv);
+      return srv;
+    } catch (e: any) {
+      throw new Error(e?.message || 'Login failed');
+    }
   };
 
   const logout = () => {

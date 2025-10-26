@@ -40,7 +40,6 @@ export default function TransparencyDashboard() {
 
   const [processing, setProcessing] = useState<Report[]>([]);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [leaderboard, setLeaderboard] = useState<{ id: string; name: string; points: number; role?: string }[]>([]);
 
   useEffect(() => {
     let mounted = true;
@@ -68,16 +67,11 @@ export default function TransparencyDashboard() {
           mapInstance.current = new (window as any).google.maps.Map(mapRef.current, { zoom: 5, center });
         }
         await loadReports();
-        // load leaderboard
-        try {
-          const lb = await fetch('/api/leaderboard');
-          if (lb.ok) {
-            const data = await lb.json();
-            if (mounted) setLeaderboard(data);
-          }
-        } catch (e) {}
-        const iv = setInterval(async () => { await loadReports(); try { const lb2 = await fetch('/api/leaderboard'); if (lb2.ok) { const d = await lb2.json(); if (mounted) setLeaderboard(d); } } catch(e){} }, 5000);
-        return () => clearInterval(iv);
+        const iv = setInterval(loadReports, 5000);
+        // reload when other parts of the UI notify of updates (e.g., authority resolved)
+        const onUpdated = () => { loadReports().catch(() => {}); };
+        window.addEventListener('reports:updated', onUpdated);
+        return () => { clearInterval(iv); window.removeEventListener('reports:updated', onUpdated); };
       } catch (e) {
         console.error('Failed to init map', e);
         if (mounted) setFetchError('Failed to initialize map');
@@ -208,35 +202,26 @@ export default function TransparencyDashboard() {
             <div className="text-sm text-slate-500">Processing: {processing.length} · Resolved: {resolved.length}</div>
           </div>
           <div className="space-y-3 max-h-[320px] overflow-auto pr-2">
-            {[...processing, ...resolved].map((r) => (
-              <div key={r.id} className="border rounded-lg overflow-hidden">
-                <img src={r.imageDataUrl} alt="report" className="w-full aspect-video object-cover" />
-                <div className="p-3 flex items-start justify-between">
-                  <div>
-                    <div className="text-sm font-medium">{r.description}</div>
-                    <div className="text-xs text-slate-600 mt-1">Status: <span className={`px-2 py-0.5 rounded text-white text-[11px] ${r.status === 'resolved' ? 'bg-emerald-600' : 'bg-amber-500'}`}>{r.status}</span></div>
-                    {r.resolution_description && <div className="text-xs text-slate-600 mt-1">Resolution: {r.resolution_description}</div>}
-                    <div className="text-xs text-slate-500 mt-1">Reporter: {r.userName} · <span className="font-medium">{(r as any).reporter_points ?? '—'} pts</span></div>
+            {[...processing, ...resolved].map((r) => {
+              const displayPic = Array.isArray((r as any).resolution_photos) && (r as any).resolution_photos.length ? (r as any).resolution_photos[0] : r.imageDataUrl;
+              return (
+                <div key={r.id} className="border rounded-lg overflow-hidden">
+                  <img src={displayPic} alt="report" className="w-full aspect-video object-cover" />
+                  <div className="p-3 flex items-start justify-between">
+                    <div>
+                      <div className="text-sm font-medium">{r.description}</div>
+                      <div className="text-xs text-slate-600 mt-1">Status: <span className={`px-2 py-0.5 rounded text-white text-[11px] ${r.status === 'resolved' ? 'bg-emerald-600' : 'bg-amber-500'}`}>{r.status}</span></div>
+                      {r.resolution_description && <div className="text-xs text-slate-600 mt-1">Resolution: {r.resolution_description}</div>}
+                      <div className="text-xs text-slate-500 mt-1">Reporter: {r.userName} · <span className="font-medium">{(r as any).reporter_points ?? '—'} pts</span></div>
+                    </div>
+                    <div className="text-xs text-slate-400">{((r as any).resolved_location ?? r.location) ? `${(((r as any).resolved_location ?? r.location).lat).toFixed(3)}, ${(((r as any).resolved_location ?? r.location).lng).toFixed(3)}` : 'No location'}</div>
                   </div>
-                  <div className="text-xs text-slate-400">{((r as any).resolved_location ?? r.location) ? `${(((r as any).resolved_location ?? r.location).lat).toFixed(3)}, ${(((r as any).resolved_location ?? r.location).lng).toFixed(3)}` : 'No location'}</div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {processing.length + resolved.length === 0 && <div className="text-sm text-slate-600">No locations yet.</div>}
           </div>
 
-          <div className="mt-4">
-            <div className="font-semibold mb-2">Leaderboard</div>
-            <div className="space-y-2">
-              {leaderboard.map((u, i) => (
-                <div key={u.id} className="flex items-center justify-between border rounded px-3 py-2">
-                  <div className="text-sm">{i+1}. {u.name}</div>
-                  <div className="text-sm font-medium">{u.points} pts</div>
-                </div>
-              ))}
-              {leaderboard.length === 0 && <div className="text-sm text-slate-600">No leaderboard data.</div>}
-            </div>
-          </div>
         </div>
       </div>
     </div>

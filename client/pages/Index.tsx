@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import type { StatsResponse } from "@shared/api";
@@ -6,7 +6,7 @@ import { useAuth } from "../context/AuthContext";
 
 export default function Index() {
   const nav = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, leaderboard } = useAuth();
   const [stats, setStats] = useState<StatsResponse | null>(null);
 
   useEffect(() => {
@@ -14,18 +14,23 @@ export default function Index() {
   }, []);
 
   const goAuth = (next: string) => nav(`/auth?next=${encodeURIComponent(next)}`);
+  const [leaderOpen, setLeaderOpen] = useState(false);
 
-    return (
+  return (
     <div className="min-h-screen bg-white text-slate-900">
       <header className="max-w-6xl mx-auto flex items-center justify-between px-6 py-5">
         <div className="flex items-center gap-3">
-          <img src="/favicon.ico" alt="CityIssueReporter" className="h-10 w-10 rounded-lg object-contain" />
+          {/* use the SVG placeholder for the header logo — .ico files can be flaky when used as <img> */}
+          <img src="/favicon.ico" alt="CityIssueReporter logo" className="h-10 w-10 rounded-lg object-contain" />
           <span className="font-semibold tracking-tight text-lg">CityIssueReporter</span>
         </div>
         <div className="flex items-center gap-3">
           {user ? (
             <>
-              <span className="hidden sm:block text-sm text-slate-600">{user.name} · {user.role} · {user.points} pts</span>
+              <div className="hidden sm:flex items-center gap-3">
+                <span className="text-sm text-slate-600">{user.name} · {user.role} · <strong>{user.points} pts</strong></span>
+                <Button variant="ghost" onClick={() => setLeaderOpen(true)}>Leaderboard</Button>
+              </div>
               <Button variant="ghost" className="text-slate-700 border" onClick={logout}>Sign out</Button>
             </>
           ) : (
@@ -68,6 +73,36 @@ export default function Index() {
       </main>
 
       <footer className="text-center text-slate-500 py-8">© {new Date().getFullYear()} CityIssueReporter</footer>
+
+      {leaderOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-lg font-semibold">Leaderboard</h3>
+                <p className="text-sm text-slate-600">Here we encourage citizens who want their city clean — earn points when your reports get resolved.</p>
+              </div>
+              <button className="text-slate-400" onClick={() => setLeaderOpen(false)}>✕</button>
+            </div>
+            <div className="mt-4 space-y-2">
+              {Array.isArray(leaderboard) && leaderboard.filter((x:any)=>x.role !== 'authority').length > 0 ? (
+                leaderboard.filter((x:any)=>x.role !== 'authority').map((u, i) => (
+                  <div key={u.id} className="flex items-center justify-between border rounded px-3 py-2">
+                    <div className="text-sm">{i+1}. {u.name}</div>
+                    <div className="text-sm font-medium">{u.points} pts</div>
+                  </div>
+                ))
+              ) : (
+                <div className="text-sm text-slate-600">No leaderboard data yet.</div>
+              )}
+            </div>
+            <div className="mt-4 text-right">
+              <Button onClick={() => setLeaderOpen(false)}>Close</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

@@ -9,11 +9,15 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
     fs: {
-  // <-- add __dirname to allow project root
-  allow: [path.resolve(__dirname), "./client", "./shared"],
-  deny: [".env", ".env.*", "*.{crt,pem}", "**/.git/**", "server/**"],
-   },
-
+      allow: [path.resolve(__dirname), "./client", "./shared"],
+      deny: [".env", ".env.*", "*.{crt,pem}", "**/.git/**", "server/**"],
+    },
+    // allow ngrok URLs
+    allowedHosts: [
+      "localhost",
+      "127.0.0.1",
+      "900cf9a13223.ngrok-free.app", // add your ngrok URL here
+    ],
   },
   build: {
     outDir: "dist/spa",
@@ -30,11 +34,9 @@ export default defineConfig(({ mode }) => ({
 function expressPlugin(): Plugin {
   return {
     name: "express-plugin",
-    apply: "serve", // Only apply during development (serve mode)
+    apply: "serve",
     configureServer(server) {
       const app = createServer();
-
-      // Add Express app as middleware to Vite dev server
       server.middlewares.use(app);
     },
   };
